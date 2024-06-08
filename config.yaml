@@ -1,0 +1,3 @@
+VITSModelPath: "1113_epochs.pth"
+configFilePath: "config.json"
+speakerID: 1
