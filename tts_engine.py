@@ -14,21 +14,60 @@ import logging
 logging.getLogger('numba').setLevel(logging.WARNING)
 
 class TTS_Engine():
+    """
+    Read the voice model and settings from the config file and perform the tts function of moegoe.
+    ...
+
+    Attributes
+    ----------
+    vits_model_path : str
+        Path of the Model file
+    config_file_path : str
+        Path of the Config file
+    speaker_id : int
+        voice actor id
+    hparams_ms : HParams
+        ...
+    net_g_ms : SynthesizerTrn
+        ...
+    Methods
+    -------
+    text_to_audio(self, text:str)
+        Convert text to wav byte stream
+    """
     def __init__(self, yaml_path: str):
-        __data: dict = self.__open_yaml(yaml_path)
-        # replace existing input course to yaml file
-        self.vits_model_path = __data['VITSModelPath']
-        print(f"model:{self.vits_model_path}")
-        self.config_file_path = __data['configFilePath']
-        print(f"config:{self.config_file_path}")
-        self.speaker_id = __data['speakerID']
-        print(f"speakerid: {self.speaker_id}")
-        self.hparams_ms = utils.get_hparams_from_file(self.config_file_path)
+        """
+        Parameters
+        ----------
+        yaml_path : str
+            Path of the yaml file
         
-        # init Moegoe sequence
-        self.__init_moegoe() 
-        _ = self.net_g_ms.eval() 
-        utils.load_checkpoint(self.vits_model_path, self.net_g_ms)
+        yaml file should have the following format:
+        ```
+        VITSModelPath: 'path/to/model.pth'
+        configFilePath: 'path/to/config.yaml'
+        speakerID: 0 'speaker id'
+        ```
+        
+        Raises
+        ------
+        Exception
+            If there is an error in the process
+        """
+        try:
+            __data: dict = self.__open_yaml(yaml_path)
+            # replace existing input course to yaml file
+            self.vits_model_path = __data['VITSModelPath']
+            self.config_file_path = __data['configFilePath']
+            self.speaker_id = __data['speakerID']
+            self.hparams_ms = utils.get_hparams_from_file(self.config_file_path)
+            
+            # init Moegoe sequence
+            self.__init_moegoe() 
+            _ = self.net_g_ms.eval() 
+            utils.load_checkpoint(self.vits_model_path, self.net_g_ms)
+        except Exception as e:
+            raise Exception(f'Error in TTS_Engine __init__: {e}')
 
 
     def __open_yaml(self, yaml_path: str) -> dict:
@@ -39,11 +78,8 @@ class TTS_Engine():
     def __init_moegoe(self):
         n_speakers = self.hparams_ms.data.n_speakers if 'n_speakers' in self.hparams_ms.data.keys() else 0
         n_symbols = len(self.hparams_ms.symbols) if 'symbols' in self.hparams_ms.keys() else 0
-        print(f"n_symbols: {n_symbols}")
         speakers = self.hparams_ms.speakers if 'speakers' in self.hparams_ms.keys() else ['0']
-        print(f"speakers: {speakers}")
         use_f0 = self.hparams_ms.data.use_f0 if 'use_f0' in self.hparams_ms.data.keys() else False
-        print(f"use_f0: {use_f0}")
         emotion_embedding = self.hparams_ms.data.emotion_embedding if 'emotion_embedding' in self.hparams_ms.data.keys() else False
         #init object
         self.net_g_ms = SynthesizerTrn(
@@ -85,28 +121,45 @@ class TTS_Engine():
 
     
     def text_to_audio(self, text: str):
-        length_scale, text = self.__get_label_value(text, 'LENGTH', 1, 'length scale')
-        # print(f"length_scale: {length_scale}")
-        noise_scale, text = self.__get_label_value(text, 'NOISE', 0.667, 'noise scale')
-        # print(f"noise_scale: {noise_scale}")
-        noise_scale_w, text = self.__get_label_value(text, 'NOISEW', 0.8, 'deviation of noise')
-        # print(f"noise_scale_w: {noise_scale_w}")
-        cleaned, text = self.__get_label(text, 'CLEANED')
-        # print(f"cleaned: {cleaned}")
-
-        sequence_text_normalized = self.__get_text(text, self.hparams_ms, cleaned=cleaned)
-        # print(f"sequence_text_normalized: {sequence_text_normalized}")  
-        with no_grad():
-            x_tst = sequence_text_normalized.unsqueeze(0)
-            x_tst_lengths = LongTensor([sequence_text_normalized.size(0)])
-            sid = LongTensor([self.speaker_id])
-            audio = self.net_g_ms.infer(x_tst, x_tst_lengths, sid=sid, noise_scale=noise_scale,
-                                        noise_scale_w=noise_scale_w, length_scale=length_scale)[0][0, 0].data.cpu().float().numpy()
-        bytes_wav = bytes()
-        bytes_io = io.BytesIO(bytes_wav)
-        write(bytes_io, self.hparams_ms.data.sampling_rate, audio)
-        return bytes_io.read()
+        """
+        Convert text to wav byte stream.
         
+        Parameters
+        ----------
+        text : str
+            Text to be converted to audio
+        
+        Raises
+        ------
+        Exception
+            If there is an error in the process
+            
+        Returns
+        -------
+        bytes_io.read() : bytes
+            Wav byte stream
+
+        """
+        try:
+            length_scale, text = self.__get_label_value(text, 'LENGTH', 1, 'length scale')
+            noise_scale, text = self.__get_label_value(text, 'NOISE', 0.667, 'noise scale')
+            noise_scale_w, text = self.__get_label_value(text, 'NOISEW', 0.8, 'deviation of noise')
+            cleaned, text = self.__get_label(text, 'CLEANED')
+
+            sequence_text_normalized = self.__get_text(text, self.hparams_ms, cleaned=cleaned)
+            with no_grad():
+                x_tst = sequence_text_normalized.unsqueeze(0)
+                x_tst_lengths = LongTensor([sequence_text_normalized.size(0)])
+                sid = LongTensor([self.speaker_id])
+                audio = self.net_g_ms.infer(x_tst, x_tst_lengths, sid=sid, noise_scale=noise_scale,
+                                            noise_scale_w=noise_scale_w, length_scale=length_scale)[0][0, 0].data.cpu().float().numpy()
+            bytes_wav = bytes()
+            bytes_io = io.BytesIO(bytes_wav)
+            write(bytes_io, self.hparams_ms.data.sampling_rate, audio)
+            return bytes_io.read()
+
+        except Exception as e:
+            raise Exception(f'Error in text_to_audio: {e}')
 
 if __name__ == '__main__':
     try:
