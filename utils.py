@@ -2,6 +2,7 @@ import logging
 from json import loads
 from torch import load, FloatTensor
 from numpy import float32
+from models import SynthesizerTrn
 import librosa
 
 
@@ -37,7 +38,7 @@ class HParams():
     return self.__dict__.__repr__()
 
 
-def load_checkpoint(checkpoint_path, model):
+def load_checkpoint(checkpoint_path, model: SynthesizerTrn):
   checkpoint_dict = load(checkpoint_path, map_location='cpu')
   iteration = checkpoint_dict['iteration']
   saved_state_dict = checkpoint_dict['model']
@@ -55,13 +56,13 @@ def load_checkpoint(checkpoint_path, model):
   if hasattr(model, 'module'):
     model.module.load_state_dict(new_state_dict)
   else:
-    model.load_state_dict(new_state_dict)
+    model.load_state_dict(new_state_dict, strict=False)
   logging.info("Loaded checkpoint '{}' (iteration {})" .format(
     checkpoint_path, iteration))
   return
 
 
-def get_hparams_from_file(config_path):
+def get_hparams_from_file(config_path) -> HParams:
   with open(config_path, "r") as f:
     data = f.read()
   config = loads(data)
